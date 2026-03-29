@@ -15,225 +15,9 @@ import (
 )
 
 // RegisterTools registers all MCP tools on the server.
-// All tools are read-only. No write/create/delete tools are implemented.
 func RegisterTools(s *server.MCPServer, node *Node) {
-	// ── Document & Selection ─────────────────────────────────────────────
-
-	s.AddTool(mcp.NewTool("get_document",
-		mcp.WithDescription("Get the current Figma page document tree"),
-	), makeHandler(node, "get_document", nil, nil))
-
-	s.AddTool(mcp.NewTool("get_pages",
-		mcp.WithDescription("List all pages in the document with their IDs and names. Lightweight alternative to get_document."),
-	), makeHandler(node, "get_pages", nil, nil))
-
-	s.AddTool(mcp.NewTool("get_metadata",
-		mcp.WithDescription("Get metadata about the current Figma document: file name, pages, current page"),
-	), makeHandler(node, "get_metadata", nil, nil))
-
-	s.AddTool(mcp.NewTool("get_selection",
-		mcp.WithDescription("Get the currently selected nodes in Figma"),
-	), makeHandler(node, "get_selection", nil, nil))
-
-	s.AddTool(mcp.NewTool("get_node",
-		mcp.WithDescription("Get a specific Figma node by ID. Must use colon format e.g. '4029:12345', never hyphens."),
-		mcp.WithString("nodeId",
-			mcp.Required(),
-			mcp.Description("Node ID in colon format e.g. '4029:12345'"),
-		),
-	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		nodeID, _ := req.GetArguments()["nodeId"].(string)
-		resp, err := node.Send(ctx, "get_node", []string{nodeID}, nil)
-		return renderResponse(resp, err)
-	})
-
-	s.AddTool(mcp.NewTool("get_nodes_info",
-		mcp.WithDescription("Get detailed information about multiple Figma nodes by ID in a single call."),
-		mcp.WithArray("nodeIds",
-			mcp.Required(),
-			mcp.Description("List of node IDs in colon format e.g. ['4029:12345', '4029:67890']"),
-		),
-	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		raw, _ := req.GetArguments()["nodeIds"].([]interface{})
-		nodeIDs := toStringSlice(raw)
-		resp, err := node.Send(ctx, "get_nodes_info", nodeIDs, nil)
-		return renderResponse(resp, err)
-	})
-
-	s.AddTool(mcp.NewTool("get_design_context",
-		mcp.WithDescription("Get a depth-limited tree of the current selection or page. More token-efficient than get_document for large files."),
-		mcp.WithNumber("depth",
-			mcp.Description("How many levels deep to traverse (default 2)"),
-		),
-		mcp.WithString("detail",
-			mcp.Description("Property verbosity: minimal (id/name/type/bounds only), compact (+fills/strokes/opacity), full (everything, default)"),
-		),
-	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		params := map[string]interface{}{}
-		if d, ok := req.GetArguments()["depth"].(float64); ok && d > 0 {
-			params["depth"] = d
-		}
-		if det, ok := req.GetArguments()["detail"].(string); ok && det != "" {
-			params["detail"] = det
-		}
-		resp, err := node.Send(ctx, "get_design_context", nil, params)
-		return renderResponse(resp, err)
-	})
-
-	s.AddTool(mcp.NewTool("search_nodes",
-		mcp.WithDescription("Search for nodes by name substring and/or type within a subtree. Avoids dumping the entire document tree."),
-		mcp.WithString("query",
-			mcp.Required(),
-			mcp.Description("Name substring to match (case-insensitive)"),
-		),
-		mcp.WithString("nodeId",
-			mcp.Description("Scope search to this subtree (default: current page), colon format e.g. '4029:12345'"),
-		),
-		mcp.WithArray("types",
-			mcp.Description("Filter by Figma node type e.g. ['TEXT', 'FRAME', 'COMPONENT']"),
-		),
-		mcp.WithNumber("limit",
-			mcp.Description("Maximum results to return (default: 50)"),
-		),
-	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		params := map[string]interface{}{
-			"query": req.GetArguments()["query"],
-		}
-		if id, ok := req.GetArguments()["nodeId"].(string); ok && id != "" {
-			params["nodeId"] = id
-		}
-		if raw, ok := req.GetArguments()["types"].([]interface{}); ok && len(raw) > 0 {
-			params["types"] = raw
-		}
-		if limit, ok := req.GetArguments()["limit"].(float64); ok && limit > 0 {
-			params["limit"] = limit
-		}
-		resp, err := node.Send(ctx, "search_nodes", nil, params)
-		return renderResponse(resp, err)
-	})
-
-	s.AddTool(mcp.NewTool("scan_text_nodes",
-		mcp.WithDescription("Scan all TEXT nodes in a subtree. Useful for extracting all copy from a component or frame."),
-		mcp.WithString("nodeId",
-			mcp.Required(),
-			mcp.Description("Root node ID to scan from, colon format e.g. '4029:12345'"),
-		),
-	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		nodeID, _ := req.GetArguments()["nodeId"].(string)
-		resp, err := node.Send(ctx, "scan_text_nodes", nil, map[string]interface{}{"nodeId": nodeID})
-		return renderResponse(resp, err)
-	})
-
-	s.AddTool(mcp.NewTool("scan_nodes_by_types",
-		mcp.WithDescription("Find all nodes matching specific types (e.g. FRAME, COMPONENT, INSTANCE) within a subtree."),
-		mcp.WithString("nodeId",
-			mcp.Required(),
-			mcp.Description("Root node ID to scan from, colon format e.g. '4029:12345'"),
-		),
-		mcp.WithArray("types",
-			mcp.Required(),
-			mcp.Description("Node types to find e.g. ['FRAME', 'COMPONENT', 'INSTANCE']"),
-		),
-	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		nodeID, _ := req.GetArguments()["nodeId"].(string)
-		raw, _ := req.GetArguments()["types"].([]interface{})
-		resp, err := node.Send(ctx, "scan_nodes_by_types", nil, map[string]interface{}{
-			"nodeId": nodeID,
-			"types":  raw,
-		})
-		return renderResponse(resp, err)
-	})
-
-	s.AddTool(mcp.NewTool("get_reactions",
-		mcp.WithDescription("Get prototype/interaction reactions on a node. Useful for understanding interactive prototypes."),
-		mcp.WithString("nodeId",
-			mcp.Required(),
-			mcp.Description("Node ID in colon format e.g. '4029:12345'"),
-		),
-	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		nodeID, _ := req.GetArguments()["nodeId"].(string)
-		resp, err := node.Send(ctx, "get_reactions", []string{nodeID}, nil)
-		return renderResponse(resp, err)
-	})
-
-	s.AddTool(mcp.NewTool("get_viewport",
-		mcp.WithDescription("Get the current Figma viewport: scroll center, zoom level, and visible bounds."),
-	), makeHandler(node, "get_viewport", nil, nil))
-
-	s.AddTool(mcp.NewTool("get_fonts",
-		mcp.WithDescription("List all fonts used in the current page, sorted by usage frequency. Useful for understanding typography without scanning all text nodes."),
-	), makeHandler(node, "get_fonts", nil, nil))
-
-	// ── Styles & Variables ───────────────────────────────────────────────
-
-	s.AddTool(mcp.NewTool("get_styles",
-		mcp.WithDescription("Get all local styles in the document: paint, text, effect, and grid styles"),
-	), makeHandler(node, "get_styles", nil, nil))
-
-	s.AddTool(mcp.NewTool("get_variable_defs",
-		mcp.WithDescription("Get all local variable definitions: collections, modes, and values. Variables are Figma's design token system."),
-	), makeHandler(node, "get_variable_defs", nil, nil))
-
-	s.AddTool(mcp.NewTool("get_local_components",
-		mcp.WithDescription("Get all components defined in the current Figma file."),
-	), makeHandler(node, "get_local_components", nil, nil))
-
-	s.AddTool(mcp.NewTool("get_annotations",
-		mcp.WithDescription("Get all dev-mode annotations in the current document or on a specific node."),
-		mcp.WithString("nodeId",
-			mcp.Description("Optional node ID to filter annotations, colon format e.g. '4029:12345'"),
-		),
-	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		params := map[string]interface{}{}
-		if id, ok := req.GetArguments()["nodeId"].(string); ok && id != "" {
-			params["nodeId"] = id
-		}
-		resp, err := node.Send(ctx, "get_annotations", nil, params)
-		return renderResponse(resp, err)
-	})
-
-	// ── Export ───────────────────────────────────────────────────────────
-
-	s.AddTool(mcp.NewTool("get_screenshot",
-		mcp.WithDescription("Export a screenshot of selected or specific nodes. Returns base64-encoded image data."),
-		mcp.WithArray("nodeIds",
-			mcp.Description("Optional node IDs to export, colon format. If empty, exports current selection."),
-		),
-		mcp.WithString("format",
-			mcp.Description("Export format: PNG (default), SVG, JPG, or PDF"),
-		),
-		mcp.WithNumber("scale",
-			mcp.Description("Export scale for raster formats (default 2)"),
-		),
-	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		raw, _ := req.GetArguments()["nodeIds"].([]interface{})
-		nodeIDs := toStringSlice(raw)
-		params := map[string]interface{}{}
-		if f, ok := req.GetArguments()["format"].(string); ok && f != "" {
-			params["format"] = f
-		}
-		if s, ok := req.GetArguments()["scale"].(float64); ok && s > 0 {
-			params["scale"] = s
-		}
-		resp, err := node.Send(ctx, "get_screenshot", nodeIDs, params)
-		return renderResponse(resp, err)
-	})
-
-	s.AddTool(mcp.NewTool("save_screenshots",
-		mcp.WithDescription("Export screenshots for multiple nodes and save them to the local filesystem. Returns metadata only (no base64)."),
-		mcp.WithArray("items",
-			mcp.Required(),
-			mcp.Description("List of {nodeId, outputPath, format?, scale?} objects"),
-		),
-		mcp.WithString("format",
-			mcp.Description("Default export format: PNG (default), SVG, JPG, or PDF"),
-		),
-		mcp.WithNumber("scale",
-			mcp.Description("Default export scale for raster formats (default 2)"),
-		),
-	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return executeSaveScreenshots(ctx, node, req)
-	})
+	registerReadTools(s, node)
+	registerWriteTools(s, node)
 }
 
 // RegisterPrompts registers MCP prompts on the server.
@@ -265,6 +49,372 @@ func RegisterPrompts(s *server.MCPServer) {
 12. Call get_screenshot last and only when visual confirmation is needed — it is expensive
 13. Node IDs use colon format: 4029:12345 — never use hyphens
 14. get_local_components now includes componentSets and variantProperties for variant-aware inspection`),
+				),
+			},
+		), nil
+	})
+
+	s.AddPrompt(mcp.NewPrompt("design_strategy",
+		mcp.WithPromptDescription("Best practices for working with Figma designs"),
+	), func(ctx context.Context, req mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		return mcp.NewGetPromptResult(
+			"Best practices for working with Figma designs",
+			[]mcp.PromptMessage{
+				mcp.NewPromptMessage(
+					mcp.RoleUser,
+					mcp.NewTextContent(`When working with Figma designs, follow these best practices:
+
+1. Start with Document Structure:
+   - First use get_metadata() to understand the current document
+   - Use get_pages() to list all pages
+   - Plan your layout hierarchy before creating elements
+   - Create a main container frame for each screen/section
+
+2. Naming Conventions:
+   - Use descriptive, semantic names for all elements
+   - Follow a consistent naming pattern (e.g., "Login Screen", "Logo Container", "Email Input")
+   - Group related elements with meaningful names
+
+3. Layout Hierarchy:
+   - Create parent frames first, then add child elements
+   - For forms/login screens:
+     * Start with the main screen container frame
+     * Create a logo container at the top
+     * Group input fields in their own containers
+     * Place action buttons (login, submit) after inputs
+     * Add secondary elements (forgot password, signup links) last
+
+4. Input Fields Structure:
+   - Create a container frame for each input field
+   - Include a label text above or inside the input
+   - Group related inputs (e.g., username/password) together
+
+5. Element Creation:
+   - Use create_frame() for containers and input fields
+   - Use create_text() for labels, buttons text, and links
+   - Set appropriate colors and styles:
+     * Use fillColor for backgrounds
+     * Use set_strokes() for borders
+     * Set proper fontStyle for different text elements
+
+6. Modifying existing elements:
+   - Use set_text() to modify text content of a TEXT node
+   - Use set_fills() to change background/fill colors
+   - Use move_nodes() / resize_nodes() for position and size adjustments
+
+7. Visual Hierarchy:
+   - Position elements in logical reading order (top to bottom)
+   - Maintain consistent spacing between elements
+   - Use appropriate font sizes for different text types:
+     * Larger for headings/welcome text
+     * Medium for input labels
+     * Standard for button text
+     * Smaller for helper text/links
+
+8. Best Practices:
+   - Verify each creation with get_node()
+   - Use parentId to maintain proper hierarchy
+   - Group related elements together in frames
+   - Keep consistent spacing and alignment
+   - All write operations are undoable via Ctrl/Cmd+Z in Figma
+
+Example Login Screen Structure:
+- Login Screen (main frame)
+  - Logo Container (frame)
+    - Logo (text)
+  - Welcome Text (text)
+  - Input Container (frame)
+    - Email Input (frame)
+      - Email Label (text)
+      - Email Field (frame)
+    - Password Input (frame)
+      - Password Label (text)
+      - Password Field (frame)
+  - Login Button (frame)
+    - Button Text (text)
+  - Helper Links (frame)
+    - Forgot Password (text)
+    - Don't have account (text)`),
+				),
+			},
+		), nil
+	})
+
+	s.AddPrompt(mcp.NewPrompt("text_replacement_strategy",
+		mcp.WithPromptDescription("Systematic approach for replacing text in Figma designs"),
+	), func(ctx context.Context, req mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		return mcp.NewGetPromptResult(
+			"Systematic approach for replacing text in Figma designs",
+			[]mcp.PromptMessage{
+				mcp.NewPromptMessage(
+					mcp.RoleUser,
+					mcp.NewTextContent(`# Intelligent Text Replacement Strategy
+
+## 1. Analyze Design & Identify Structure
+- Scan text nodes to understand the overall structure of the design
+- Use AI pattern recognition to identify logical groupings:
+  * Tables (rows, columns, headers, cells)
+  * Lists (items, headers, nested lists)
+  * Card groups (similar cards with recurring text fields)
+  * Forms (labels, input fields, validation text)
+  * Navigation (menu items, breadcrumbs)
+
+scan_text_nodes(nodeId: "node-id")
+get_node(nodeId: "node-id")  // optional for extra context
+
+## 2. Strategic Chunking for Complex Designs
+- Divide replacement tasks into logical content chunks based on design structure
+- Use one of these chunking strategies that best fits the design:
+  * Structural Chunking: Table rows/columns, list sections, card groups
+  * Spatial Chunking: Top-to-bottom, left-to-right in screen areas
+  * Semantic Chunking: Content related to the same topic or functionality
+  * Component-Based Chunking: Process similar component instances together
+
+## 3. Progressive Replacement with Verification
+- Create a safe copy of the node before bulk replacements
+- Replace text chunk by chunk with continuous progress updates
+- After each chunk is processed:
+  * Export that section with get_screenshot for visual verification
+  * Verify text fits properly and maintains design integrity
+  * Fix issues before proceeding to the next chunk
+
+// Clone the node to create a safe copy
+clone_node(nodeId: "selected-node-id", x: newX, y: newY)
+
+// Replace text one node at a time or in batches
+set_text(nodeId: "node-id", text: "New text")
+
+// Verify chunk with targeted image export
+get_screenshot(nodeIds: ["chunk-node-id"], format: "PNG", scale: 0.5)
+
+## 4. Intelligent Handling for Table Data
+- For tabular content:
+  * Process one row or column at a time
+  * Maintain alignment and spacing between cells
+  * Consider conditional formatting based on cell content
+  * Preserve header/data relationships
+
+## 5. Smart Text Adaptation
+- Adaptively handle text based on container constraints:
+  * Auto-detect space constraints and adjust text length
+  * Apply line breaks at appropriate linguistic points
+  * Maintain text hierarchy and emphasis
+
+## 6. Final Verification & Context-Aware QA
+- After all chunks are processed:
+  * Export the entire design at reduced scale for final verification
+  * Check for cross-chunk consistency issues
+  * Verify proper text flow between different sections
+  * Ensure design harmony across the full composition
+
+## 7. Chunk-Specific Export Scale Guidelines
+- Scale exports appropriately based on chunk size:
+  * Small chunks (1-5 elements): scale 1.0
+  * Medium chunks (6-20 elements): scale 0.7
+  * Large chunks (21-50 elements): scale 0.5
+  * Very large chunks (50+ elements): scale 0.3
+  * Full design verification: scale 0.2
+
+## Best Practices
+- Preserve Design Intent: Always prioritize design integrity
+- Structural Consistency: Maintain alignment, spacing, and hierarchy
+- Visual Feedback: Verify each chunk visually before proceeding
+- Incremental Improvement: Learn from each chunk to improve subsequent ones
+- Respect Content Relationships: Keep related content consistent across chunks`),
+				),
+			},
+		), nil
+	})
+
+	s.AddPrompt(mcp.NewPrompt("annotation_conversion_strategy",
+		mcp.WithPromptDescription("Strategy for converting manual annotations to Figma's native annotations"),
+	), func(ctx context.Context, req mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		return mcp.NewGetPromptResult(
+			"Strategy for converting manual annotations to Figma's native annotations",
+			[]mcp.PromptMessage{
+				mcp.NewPromptMessage(
+					mcp.RoleUser,
+					mcp.NewTextContent(`# Automatic Annotation Conversion
+
+## Process Overview
+Convert manual annotations (numbered/alphabetical indicators with connected descriptions) to Figma's native annotations:
+
+1. Get selected frame/component information
+2. Scan and collect all annotation text nodes
+3. Scan target UI elements (components, instances, frames)
+4. Match annotations to appropriate UI elements
+5. Apply native Figma annotations
+
+## Step 1: Get Selection and Initial Setup
+
+// Get the selected frame/component
+get_selection()
+// Note the selected node ID, then:
+get_annotations(nodeId: "selected-node-id")
+
+## Step 2: Scan Annotation Text Nodes
+
+// Get all text nodes in the selection
+scan_text_nodes(nodeId: "selected-node-id")
+
+// Filter and group annotation markers and descriptions
+// Markers typically have these characteristics:
+// - Short text content (usually single digit/letter)
+// - Specific font styles (often bold)
+// - Located in a container with "Marker" or "Dot" in the name
+// - Have a clear naming pattern (e.g., "1", "2", "3" or "A", "B", "C")
+
+## Step 3: Scan Target UI Elements
+
+// Get all potential target elements that annotations might refer to
+scan_nodes_by_types(nodeId: "selected-node-id", types: ["COMPONENT", "INSTANCE", "FRAME"])
+
+## Step 4: Match Annotations to Targets
+
+Match each annotation to its target UI element using these strategies in order of priority:
+
+1. Path-Based Matching:
+   - Look at the marker's parent container name in the Figma layer hierarchy
+   - Remove any "Marker:" or "Annotation:" prefixes from the parent name
+   - Find UI elements that share the same parent name or have it in their path
+
+2. Name-Based Matching:
+   - Extract key terms from the annotation description
+   - Look for UI elements whose names contain these key terms
+   - Particularly effective for form fields, buttons, and labeled components
+
+3. Proximity-Based Matching (fallback):
+   - Calculate the center point of the marker using its bounds
+   - Find the closest UI element by measuring distances to element centers
+   - Use this method when other matching strategies fail
+
+## Step 5: Verify Results
+
+After converting annotations, verify with:
+get_annotations(nodeId: "selected-node-id")
+get_screenshot(nodeIds: ["selected-node-id"], format: "PNG", scale: 0.5)
+
+This strategy focuses on practical implementation based on real-world usage patterns,
+emphasizing the importance of handling various UI elements as annotation targets.`),
+				),
+			},
+		), nil
+	})
+
+	s.AddPrompt(mcp.NewPrompt("swap_overrides_instances",
+		mcp.WithPromptDescription("Strategy for transferring overrides between component instances in Figma"),
+	), func(ctx context.Context, req mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		return mcp.NewGetPromptResult(
+			"Strategy for transferring overrides between component instances in Figma",
+			[]mcp.PromptMessage{
+				mcp.NewPromptMessage(
+					mcp.RoleUser,
+					mcp.NewTextContent(`# Swap Component Instance and Override Strategy
+
+## Overview
+Transfer content and property overrides from a source instance to one or more target instances
+in Figma, maintaining design consistency while reducing manual work.
+
+## Step-by-Step Process
+
+### 1. Selection Analysis
+- Use get_selection() to identify the parent component or selected instances
+- For parent components, scan for instances with:
+  scan_nodes_by_types(nodeId: "parent-id", types: ["INSTANCE"])
+- Identify custom slots by name patterns (e.g. "Custom Slot*" or "Instance Slot")
+- Determine which is the source instance (with content to copy) and which are targets
+
+### 2. Inspect Source Instance
+- Use get_node(nodeId: "source-instance-id") to examine the source instance structure
+- Use get_nodes_info(nodeIds: [...]) to batch-inspect multiple instances
+- Use scan_text_nodes(nodeId: "source-instance-id") to capture all text content
+
+### 3. Apply Overrides to Targets
+- For text overrides: use set_text(nodeId: "target-text-node-id", text: "copied text")
+- For fill overrides: use set_fills(nodeId: "target-node-id", color: "#hexcolor")
+- For stroke overrides: use set_strokes(nodeId: "target-node-id", color: "#hexcolor")
+- Process targets one at a time or identify patterns to apply systematically
+
+### 4. Verification
+- Verify results with get_node() or get_design_context()
+- Confirm text content and style overrides have transferred successfully
+- Use get_screenshot() for visual confirmation if needed
+
+## Key Tips
+- Use scan_nodes_by_types to enumerate all instances before starting
+- When working with multiple targets, check the full selection with get_selection()
+- Prefer reading the full node tree of the source first to understand its structure
+- Keep related content consistent across all target instances`),
+				),
+			},
+		), nil
+	})
+
+	s.AddPrompt(mcp.NewPrompt("reaction_to_connector_strategy",
+		mcp.WithPromptDescription("Strategy for analyzing Figma prototype reactions and mapping interaction flows"),
+	), func(ctx context.Context, req mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		return mcp.NewGetPromptResult(
+			"Strategy for analyzing Figma prototype reactions and mapping interaction flows",
+			[]mcp.PromptMessage{
+				mcp.NewPromptMessage(
+					mcp.RoleUser,
+					mcp.NewTextContent(`# Strategy: Analyze Figma Prototype Reactions and Map Interaction Flows
+
+## Goal
+Process the JSON output from the get_reactions tool to understand prototype flows
+and produce a clear, structured map of interactions between screens/nodes.
+
+## Input Data
+You will receive JSON data from get_reactions. Each node may contain reactions like:
+{
+  "trigger": { "type": "ON_CLICK" },
+  "action": {
+    "type": "NAVIGATE",
+    "destinationId": "destination-node-id"
+  }
+}
+
+## Step-by-Step Process
+
+### 1. Gather Context
+- Call get_nodes_info(nodeIds: [...]) on all relevant nodes to get their names and types
+- Call get_design_context(depth: 2, detail: "minimal") to understand the page structure
+
+### 2. Filter and Transform Reactions
+- Iterate through the get_reactions JSON output
+- Keep only reactions where action type implies navigation:
+  * NAVIGATE, OPEN_OVERLAY, SWAP_OVERLAY
+  * Ignore: CHANGE_TO, CLOSE_OVERLAY, and others without a destinationId
+- Extract per reaction:
+  * sourceNodeId: the node the reaction belongs to
+  * destinationId: action.destinationId
+  * actionType: action.type
+  * triggerType: trigger.type
+
+### 3. Generate Flow Map
+For each valid reaction, create a human-readable description:
+- "On click → navigate to [Destination Name]"
+- "On drag → open [Destination Name] overlay"
+- "On hover → swap to [Destination Name]"
+
+Combine these into a structured flow map grouped by source screen.
+
+### 4. Output Format
+Produce a summary like:
+
+Flow Map:
+- [Screen A] --ON_CLICK/NAVIGATE--> [Screen B]
+- [Screen A] --ON_CLICK/OPEN_OVERLAY--> [Modal C]
+- [Screen B] --ON_CLICK/NAVIGATE--> [Screen C]
+
+### 5. Verification
+- Use get_screenshot(nodeIds: [...]) on key screens to visually confirm the flow
+- Cross-check node names from get_nodes_info with the flow map
+
+## Notes
+- Node IDs use colon format: 4029:12345 — never use hyphens
+- Use get_reactions on a set of nodes that represent screens or interactive frames
+- Focus on NAVIGATE actions for the primary user journey`),
 				),
 			},
 		), nil
