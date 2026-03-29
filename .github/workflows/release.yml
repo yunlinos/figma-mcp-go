@@ -43,8 +43,19 @@ jobs:
             done
           done
 
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Build plugin
+        working-directory: plugin
+        run: bun install && bun run build
+
       - name: Package plugin
-        run: zip -r plugin.zip plugin/
+        run: |
+          mkdir -p plugin-dist
+          cp plugin/manifest.json plugin-dist/
+          cp plugin/dist/code.js plugin-dist/
+          cp plugin/dist/index.html plugin-dist/
+          zip -r plugin.zip plugin-dist/
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
