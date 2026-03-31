@@ -9,14 +9,14 @@ export const handleReadRequest = async (request: any) => {
       return {
         type: request.type,
         requestId: request.requestId,
-        data: serializeNode(figma.currentPage),
+        data: await serializeNode(figma.currentPage),
       };
 
     case "get_selection":
       return {
         type: request.type,
         requestId: request.requestId,
-        data: figma.currentPage.selection.map((node) => serializeNode(node)),
+        data: await Promise.all(figma.currentPage.selection.map((node) => serializeNode(node))),
       };
 
     case "get_node": {
@@ -28,7 +28,7 @@ export const handleReadRequest = async (request: any) => {
       return {
         type: request.type,
         requestId: request.requestId,
-        data: serializeNode(node),
+        data: await serializeNode(node),
       };
     }
 
@@ -97,21 +97,21 @@ export const handleReadRequest = async (request: any) => {
           : 2;
       const detail = (request.params && request.params.detail) || "full";
 
-      const serializeForDetail = (n: any) => {
+      const serializeForDetail = async (n: any) => {
         const base = { id: n.id, name: n.name, type: n.type, bounds: getBounds(n) };
         if (detail === "minimal") return base;
-        const styles = serializeStyles(n);
+        const styles = await serializeStyles(n);
         const result: any = Object.assign({}, base);
         if (Object.keys(styles).length > 0) result.styles = styles;
         if ("opacity" in n && n.opacity !== 1) result.opacity = n.opacity;
         if ("visible" in n && !n.visible) result.visible = false;
         if (detail === "compact") return result;
-        return serializeNode(n);
+        return await serializeNode(n);
       };
 
       const serializeWithDepth = async (node: any, currentDepth: number): Promise<any> => {
         if (detail === "full") {
-          const serialized = serializeNode(node);
+          const serialized = await serializeNode(node);
           if (currentDepth >= depth && serialized.children) {
             return Object.assign({}, serialized, {
               children: undefined,
@@ -134,7 +134,7 @@ export const handleReadRequest = async (request: any) => {
           return serialized;
         }
 
-        const serialized = serializeForDetail(node);
+        const serialized = await serializeForDetail(node);
         const hasChildren = "children" in node && node.children.length > 0;
         if (!hasChildren) return serialized;
         if (currentDepth >= depth) {
@@ -280,9 +280,11 @@ export const handleReadRequest = async (request: any) => {
       return {
         type: request.type,
         requestId: request.requestId,
-        data: nodes
-          .filter((n) => n !== null && n.type !== "DOCUMENT")
-          .map((n) => serializeNode(n)),
+        data: await Promise.all(
+          nodes
+            .filter((n) => n !== null && n.type !== "DOCUMENT")
+            .map((n) => serializeNode(n)),
+        ),
       };
     }
 

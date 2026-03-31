@@ -194,6 +194,7 @@ func registerWriteTools(s *server.MCPServer, node *Node) {
 		mcp.WithArray("nodeIds",
 			mcp.Required(),
 			mcp.Description("Node IDs in colon format e.g. ['4029:12345']"),
+			mcp.WithStringItems(),
 		),
 		mcp.WithNumber("x", mcp.Description("Target X position")),
 		mcp.WithNumber("y", mcp.Description("Target Y position")),
@@ -216,6 +217,7 @@ func registerWriteTools(s *server.MCPServer, node *Node) {
 		mcp.WithArray("nodeIds",
 			mcp.Required(),
 			mcp.Description("Node IDs in colon format e.g. ['4029:12345']"),
+			mcp.WithStringItems(),
 		),
 		mcp.WithNumber("width", mcp.Description("New width in pixels")),
 		mcp.WithNumber("height", mcp.Description("New height in pixels")),
@@ -282,6 +284,7 @@ func registerWriteTools(s *server.MCPServer, node *Node) {
 		mcp.WithArray("nodeIds",
 			mcp.Required(),
 			mcp.Description("Node IDs to delete in colon format e.g. ['4029:12345']"),
+			mcp.WithStringItems(),
 		),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		raw, _ := req.GetArguments()["nodeIds"].([]interface{})

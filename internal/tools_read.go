@@ -43,6 +43,7 @@ func registerReadTools(s *server.MCPServer, node *Node) {
 		mcp.WithArray("nodeIds",
 			mcp.Required(),
 			mcp.Description("List of node IDs in colon format e.g. ['4029:12345', '4029:67890']"),
+			mcp.WithStringItems(),
 		),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		raw, _ := req.GetArguments()["nodeIds"].([]interface{})
@@ -189,6 +190,7 @@ func registerReadTools(s *server.MCPServer, node *Node) {
 		mcp.WithDescription("Export a screenshot of selected or specific nodes. Returns base64-encoded image data."),
 		mcp.WithArray("nodeIds",
 			mcp.Description("Optional node IDs to export, colon format. If empty, exports current selection."),
+			mcp.WithStringItems(),
 		),
 		mcp.WithString("format",
 			mcp.Description("Export format: PNG (default), SVG, JPG, or PDF"),

@@ -2,6 +2,10 @@
 
 export const isMixed = (value: any) => typeof value === "symbol";
 
+// Round floating-point pixel values to 2 decimal places.
+// Figma sometimes returns values like 123.99999999999999 instead of 124.
+const pixelRound = (v: number) => Math.round(v * 100) / 100;
+
 export const toHex = (color: any) => {
   const clamp = (v: any) => Math.min(255, Math.max(0, Math.round(v * 255)));
   const [r, g, b] = [clamp(color.r), clamp(color.g), clamp(color.b)];
@@ -32,21 +36,35 @@ export const serializePaints = (paints: any) => {
 
 export const getBounds = (node: any) => {
   if ("x" in node && "y" in node && "width" in node && "height" in node) {
-    return { x: node.x, y: node.y, width: node.width, height: node.height };
+    return {
+      x: pixelRound(node.x),
+      y: pixelRound(node.y),
+      width: pixelRound(node.width),
+      height: pixelRound(node.height),
+    };
   }
 
   return undefined;
 };
 
-export const serializeStyles = (node: any) => {
+export const serializeStyles = async (node: any) => {
   const styles: any = {};
 
   if ("fills" in node) {
+    // Prefer named style over raw fill values when a style is applied.
+    if (node.fillStyleId && typeof node.fillStyleId === "string") {
+      const style = await figma.getStyleByIdAsync(node.fillStyleId);
+      if (style) styles.fillStyle = style.name;
+    }
     const fills = serializePaints(node.fills);
     if (fills !== undefined) styles.fills = fills;
   }
 
   if ("strokes" in node) {
+    if (node.strokeStyleId && typeof node.strokeStyleId === "string") {
+      const style = await figma.getStyleByIdAsync(node.strokeStyleId);
+      if (style) styles.strokeStyle = style.name;
+    }
     const strokes = serializePaints(node.strokes);
     if (strokes !== undefined) styles.strokes = strokes;
   }
@@ -84,7 +102,7 @@ export const serializeLetterSpacing = (letterSpacing: any) => {
   return { value: letterSpacing.value, unit: letterSpacing.unit };
 };
 
-export const serializeText = (node: any, base: any) => {
+export const serializeText = async (node: any, base: any) => {
   let fontFamily: any;
   let fontStyle: any;
 
@@ -96,9 +114,15 @@ export const serializeText = (node: any, base: any) => {
     fontStyle = node.fontName.style;
   }
 
+  const textStyleName =
+    node.textStyleId && typeof node.textStyleId === "string"
+      ? ((await figma.getStyleByIdAsync(node.textStyleId))?.name ?? undefined)
+      : undefined;
+
   return Object.assign({}, base, {
     characters: node.characters,
     styles: Object.assign({}, base.styles, {
+      ...(textStyleName ? { textStyle: textStyleName } : {}),
       fontSize: isMixed(node.fontSize) ? "mixed" : node.fontSize,
       fontFamily,
       fontStyle,
@@ -117,18 +141,19 @@ export const serializeText = (node: any, base: any) => {
   });
 };
 
-export const serializeNode = (node: any): any => {
+export const serializeNode = async (node: any): Promise<any> => {
+  const styles = await serializeStyles(node);
   const base = {
     id: node.id,
     name: node.name,
     type: node.type,
     bounds: getBounds(node),
-    styles: serializeStyles(node),
+    styles,
   };
   if (node.type === "TEXT") return serializeText(node, base);
   if ("children" in node) {
     return Object.assign({}, base, {
-      children: node.children.map((child: any) => serializeNode(child)),
+      children: await Promise.all(node.children.map((child: any) => serializeNode(child))),
     });
   }
   return base;
