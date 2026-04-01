@@ -99,6 +99,8 @@ export const handleReadRequest = async (request: any) => {
           ? request.params.depth
           : 2;
       const detail = (request.params && request.params.detail) || "full";
+      const dedupeComponents = !!(request.params && request.params.dedupeComponents);
+      const componentDefs = new Map<string, any>();
 
       const serializeForDetail = async (n: any) => {
         const base = { id: n.id, name: n.name, type: n.type, bounds: getBounds(n) };
@@ -113,6 +115,27 @@ export const handleReadRequest = async (request: any) => {
       };
 
       const serializeWithDepth = async (node: any, currentDepth: number): Promise<any> => {
+        if (dedupeComponents && node.type === "INSTANCE") {
+          const mc = node.mainComponent;
+          if (mc && !componentDefs.has(mc.id)) {
+            componentDefs.set(mc.id, await serializeNode(mc));
+          }
+          const props: Record<string, any> = {};
+          if (node.componentProperties) {
+            for (const [key, prop] of Object.entries(node.componentProperties)) {
+              props[key] = (prop as any).value;
+            }
+          }
+          const result: any = {
+            id: node.id,
+            name: node.name,
+            type: node.type,
+            bounds: getBounds(node),
+            mainComponentId: mc?.id ?? null,
+          };
+          if (Object.keys(props).length > 0) result.componentProperties = props;
+          return result;
+        }
         if (detail === "full") {
           const serialized = await serializeNode(node);
           if (currentDepth >= depth && serialized.children) {
@@ -171,6 +194,7 @@ export const handleReadRequest = async (request: any) => {
           },
           selectionCount: selection.length,
           context: contextNodes,
+          ...(componentDefs.size > 0 ? { componentDefs: Object.fromEntries(componentDefs) } : {}),
           ...(globalVars ? { globalVars } : {}),
         },
       };

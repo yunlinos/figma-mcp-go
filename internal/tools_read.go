@@ -60,6 +60,9 @@ func registerReadTools(s *server.MCPServer, node *Node) {
 		mcp.WithString("detail",
 			mcp.Description("Property verbosity: minimal (id/name/type/bounds only), compact (+fills/strokes/opacity), full (everything, default)"),
 		),
+		mcp.WithBoolean("dedupe_components",
+			mcp.Description("When true, INSTANCE nodes are serialized compactly (mainComponentId + componentProperties overrides only) and unique component definitions are collected once in a top-level componentDefs map. Highly token-efficient for screens with many repeated component instances."),
+		),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		params := map[string]interface{}{}
 		if d, ok := req.GetArguments()["depth"].(float64); ok && d > 0 {
@@ -67,6 +70,9 @@ func registerReadTools(s *server.MCPServer, node *Node) {
 		}
 		if det, ok := req.GetArguments()["detail"].(string); ok && det != "" {
 			params["detail"] = det
+		}
+		if dd, ok := req.GetArguments()["dedupe_components"].(bool); ok && dd {
+			params["dedupeComponents"] = true
 		}
 		resp, err := node.Send(ctx, "get_design_context", nil, params)
 		return renderResponse(resp, err)
