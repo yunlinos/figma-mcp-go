@@ -160,6 +160,7 @@ func registerWriteTools(s *server.MCPServer, node *Node) {
 			mcp.Description("Fill color as hex e.g. #FF5733"),
 		),
 		mcp.WithNumber("opacity", mcp.Description("Fill opacity 0–1 (default 1)")),
+		mcp.WithString("mode", mcp.Description("'replace' (default) overwrites all fills; 'append' stacks on top of existing fills")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		nodeID, _ := req.GetArguments()["nodeId"].(string)
 		params := map[string]interface{}{
@@ -167,6 +168,9 @@ func registerWriteTools(s *server.MCPServer, node *Node) {
 		}
 		if op, ok := req.GetArguments()["opacity"].(float64); ok {
 			params["opacity"] = op
+		}
+		if m, ok := req.GetArguments()["mode"].(string); ok {
+			params["mode"] = m
 		}
 		resp, err := node.Send(ctx, "set_fills", []string{nodeID}, params)
 		return renderResponse(resp, err)
@@ -183,6 +187,7 @@ func registerWriteTools(s *server.MCPServer, node *Node) {
 			mcp.Description("Stroke color as hex e.g. #000000"),
 		),
 		mcp.WithNumber("strokeWeight", mcp.Description("Stroke weight in pixels (default 1)")),
+		mcp.WithString("mode", mcp.Description("'replace' (default) overwrites all strokes; 'append' stacks on top of existing strokes")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		nodeID, _ := req.GetArguments()["nodeId"].(string)
 		params := map[string]interface{}{
@@ -190,6 +195,9 @@ func registerWriteTools(s *server.MCPServer, node *Node) {
 		}
 		if sw, ok := req.GetArguments()["strokeWeight"].(float64); ok {
 			params["strokeWeight"] = sw
+		}
+		if m, ok := req.GetArguments()["mode"].(string); ok {
+			params["mode"] = m
 		}
 		resp, err := node.Send(ctx, "set_strokes", []string{nodeID}, params)
 		return renderResponse(resp, err)

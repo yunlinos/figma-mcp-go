@@ -113,7 +113,10 @@ export const handleWriteRequest = async (request: any) => {
       const node = await figma.getNodeByIdAsync(nodeId);
       if (!node) throw new Error(`Node not found: ${nodeId}`);
       if (!("fills" in node)) throw new Error(`Node ${nodeId} does not support fills`);
-      (node as any).fills = [makeSolidPaint(p.color, p.opacity != null ? p.opacity : undefined)];
+      const newFill = makeSolidPaint(p.color, p.opacity != null ? p.opacity : undefined);
+      (node as any).fills = p.mode === "append"
+        ? [...((node as any).fills as Paint[]), newFill]
+        : [newFill];
       figma.commitUndo();
       return {
         type: request.type,
@@ -129,7 +132,10 @@ export const handleWriteRequest = async (request: any) => {
       const node = await figma.getNodeByIdAsync(nodeId);
       if (!node) throw new Error(`Node not found: ${nodeId}`);
       if (!("strokes" in node)) throw new Error(`Node ${nodeId} does not support strokes`);
-      (node as any).strokes = [makeSolidPaint(p.color)];
+      const newStroke = makeSolidPaint(p.color);
+      (node as any).strokes = p.mode === "append"
+        ? [...((node as any).strokes as Paint[]), newStroke]
+        : [newStroke];
       if (p.strokeWeight != null) (node as any).strokeWeight = p.strokeWeight;
       figma.commitUndo();
       return {
@@ -373,6 +379,10 @@ export const handleWriteRequest = async (request: any) => {
       const p = request.params || {};
       if (!p.name) throw new Error("name is required");
       if (!p.color) throw new Error("color is required");
+      const existing = (await figma.getLocalPaintStylesAsync()).find(s => s.name === p.name);
+      if (existing) {
+        return { type: request.type, requestId: request.requestId, data: { id: existing.id, name: existing.name } };
+      }
       const style = figma.createPaintStyle();
       style.name = p.name;
       style.paints = [makeSolidPaint(p.color)];
@@ -388,6 +398,10 @@ export const handleWriteRequest = async (request: any) => {
     case "create_text_style": {
       const p = request.params || {};
       if (!p.name) throw new Error("name is required");
+      const existing = (await figma.getLocalTextStylesAsync()).find(s => s.name === p.name);
+      if (existing) {
+        return { type: request.type, requestId: request.requestId, data: { id: existing.id, name: existing.name } };
+      }
       const family = p.fontFamily || "Inter";
       const fontStyle = p.fontStyle || "Regular";
       await figma.loadFontAsync({ family, style: fontStyle });
@@ -416,6 +430,10 @@ export const handleWriteRequest = async (request: any) => {
     case "create_effect_style": {
       const p = request.params || {};
       if (!p.name) throw new Error("name is required");
+      const existing = (await figma.getLocalEffectStylesAsync()).find(s => s.name === p.name);
+      if (existing) {
+        return { type: request.type, requestId: request.requestId, data: { id: existing.id, name: existing.name } };
+      }
       const effectType = p.type || "DROP_SHADOW";
       let effect: Effect;
       if (effectType === "LAYER_BLUR") {
@@ -451,6 +469,10 @@ export const handleWriteRequest = async (request: any) => {
     case "create_grid_style": {
       const p = request.params || {};
       if (!p.name) throw new Error("name is required");
+      const existing = (await figma.getLocalGridStylesAsync()).find(s => s.name === p.name);
+      if (existing) {
+        return { type: request.type, requestId: request.requestId, data: { id: existing.id, name: existing.name } };
+      }
       const pattern = p.pattern || "GRID";
       let grid: LayoutGrid;
       if (pattern === "COLUMNS" || pattern === "ROWS") {

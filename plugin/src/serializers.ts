@@ -159,6 +159,64 @@ export const serializeNode = async (node: any): Promise<any> => {
   return base;
 };
 
+// deduplicateStyles does a two-pass walk over a serialized node tree.
+// First pass: count how many times each fills/strokes array value appears.
+// Second pass: replace values that appear more than once with a short ref key.
+// Returns the rewritten tree and a globalVars.styles map (or undefined if nothing was deduped).
+export const deduplicateStyles = (tree: any): { tree: any; globalVars: Record<string, any> | undefined } => {
+  // Pass 1: count occurrences of each serialized fill/stroke value
+  const counts = new Map<string, number>();
+  const countWalk = (node: any) => {
+    if (!node || typeof node !== "object") return;
+    const s = node.styles;
+    if (s) {
+      if (Array.isArray(s.fills)) counts.set(JSON.stringify(s.fills), (counts.get(JSON.stringify(s.fills)) ?? 0) + 1);
+      if (Array.isArray(s.strokes)) counts.set(JSON.stringify(s.strokes), (counts.get(JSON.stringify(s.strokes)) ?? 0) + 1);
+    }
+    if (Array.isArray(node.children)) node.children.forEach(countWalk);
+  };
+  countWalk(tree);
+
+  // Build ref map for values that appear more than once
+  let counter = 0;
+  const keyToRef = new Map<string, string>();
+  const refs: Record<string, any> = {};
+  for (const [key, count] of counts) {
+    if (count > 1) {
+      const ref = `s${++counter}`;
+      keyToRef.set(key, ref);
+      refs[ref] = JSON.parse(key);
+    }
+  }
+  if (keyToRef.size === 0) return { tree, globalVars: undefined };
+
+  // Pass 2: replace repeated values with ref keys
+  const replaceWalk = (node: any): any => {
+    if (!node || typeof node !== "object") return node;
+    let result = node;
+    const s = node.styles;
+    if (s) {
+      let newStyles = s;
+      if (Array.isArray(s.fills)) {
+        const ref = keyToRef.get(JSON.stringify(s.fills));
+        if (ref) newStyles = { ...newStyles, fills: ref };
+      }
+      if (Array.isArray(s.strokes)) {
+        const ref = keyToRef.get(JSON.stringify(s.strokes));
+        if (ref) newStyles = { ...newStyles, strokes: ref };
+      }
+      if (newStyles !== s) result = { ...node, styles: newStyles };
+    }
+    if (Array.isArray(node.children)) {
+      const newChildren = node.children.map(replaceWalk);
+      result = { ...result, children: newChildren };
+    }
+    return result;
+  };
+
+  return { tree: replaceWalk(tree), globalVars: { styles: refs } };
+};
+
 export const serializeVariableValue = (value: any) => {
   if (typeof value !== "object" || value === null) return value;
 

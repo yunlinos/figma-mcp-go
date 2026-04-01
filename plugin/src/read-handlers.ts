@@ -1,16 +1,19 @@
 // Read handlers — all read-only Figma operations.
 // Returns null for unknown request types so the caller can try write handlers next.
 
-import { serializeNode, getBounds, serializeStyles, serializeVariableValue, isMixed } from "./serializers";
+import { serializeNode, getBounds, serializeStyles, serializeVariableValue, isMixed, deduplicateStyles } from "./serializers";
 
 export const handleReadRequest = async (request: any) => {
   switch (request.type) {
-    case "get_document":
+    case "get_document": {
+      const raw = await serializeNode(figma.currentPage);
+      const { tree, globalVars } = deduplicateStyles(raw);
       return {
         type: request.type,
         requestId: request.requestId,
-        data: await serializeNode(figma.currentPage),
+        data: globalVars ? { ...tree, globalVars } : tree,
       };
+    }
 
     case "get_selection":
       return {
@@ -149,12 +152,14 @@ export const handleReadRequest = async (request: any) => {
       };
 
       const selection = figma.currentPage.selection;
-      const contextNodes =
+      const rawContextNodes =
         selection.length > 0
           ? await Promise.all(
               selection.map((node) => serializeWithDepth(node, 0)),
             )
           : [await serializeWithDepth(figma.currentPage, 0)];
+      const { tree: dedupedNodes, globalVars } = deduplicateStyles({ children: rawContextNodes });
+      const contextNodes = (dedupedNodes as any).children;
       return {
         type: request.type,
         requestId: request.requestId,
@@ -166,6 +171,7 @@ export const handleReadRequest = async (request: any) => {
           },
           selectionCount: selection.length,
           context: contextNodes,
+          ...(globalVars ? { globalVars } : {}),
         },
       };
     }

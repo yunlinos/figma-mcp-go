@@ -204,6 +204,9 @@ func ValidateRPC(tool string, nodeIDs []string, params map[string]interface{}) s
 		if color, _ := params["color"].(string); color == "" {
 			return "color is required (hex string e.g. #FF5733)"
 		}
+		if mode, ok := params["mode"].(string); ok && mode != "replace" && mode != "append" {
+			return "mode must be 'replace' or 'append'"
+		}
 
 	case "set_strokes":
 		if len(nodeIDs) == 0 || nodeIDs[0] == "" {
@@ -214,6 +217,9 @@ func ValidateRPC(tool string, nodeIDs []string, params map[string]interface{}) s
 		}
 		if color, _ := params["color"].(string); color == "" {
 			return "color is required (hex string e.g. #FF5733)"
+		}
+		if mode, ok := params["mode"].(string); ok && mode != "replace" && mode != "append" {
+			return "mode must be 'replace' or 'append'"
 		}
 
 	case "move_nodes":
