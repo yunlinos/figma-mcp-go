@@ -56,10 +56,11 @@ func (l *Leader) Start() error {
 	mux.HandleFunc("/rpc", l.handleRPC)
 	mux.HandleFunc("/ws", l.handleWS)
 
-	l.server = &http.Server{Handler: mux}
+	srv := &http.Server{Handler: mux}
+	l.server = srv
 
 	go func() {
-		if err := l.server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			leaderLogger.Printf("serve error: %v", err)
 		}
 	}()

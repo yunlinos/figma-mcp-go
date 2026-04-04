@@ -51,10 +51,11 @@ export const base64ToBytes = (b64: string) => {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   const lookup: Record<string, number> = {};
   for (let i = 0; i < chars.length; i++) lookup[chars[i]] = i;
-  const clean = b64.replace(/[^A-Za-z0-9+/]/g, "");
-  let outLen = Math.floor(clean.length * 3 / 4);
-  if (b64.endsWith("==")) outLen -= 2;
-  else if (b64.endsWith("=")) outLen -= 1;
+  const padded = b64.replace(/[^A-Za-z0-9+/=]/g, "");
+  const clean = padded.replace(/=/g, "");
+  let outLen = Math.floor(padded.length * 3 / 4);
+  if (padded.endsWith("==")) outLen -= 2;
+  else if (padded.endsWith("=")) outLen -= 1;
   const bytes = new Uint8Array(outLen);
   let j = 0;
   for (let i = 0; i < clean.length; i += 4) {
